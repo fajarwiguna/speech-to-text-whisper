@@ -1,17 +1,32 @@
 import streamlit as st
 from transformers import pipeline
 import torch
-import os
-from tempfile import NamedTemporaryFile
+import io
+import numpy as np
+import soundfile as sf
 
-st.set_page_config(page_title="Speech-to-Text Whisper", page_icon="🗣️")
+# -----------------------------
+# Page config
+# -----------------------------
+st.set_page_config(
+    page_title="Speech-to-Text Whisper",
+    page_icon="🗣️",
+    layout="centered"
+)
+
 st.title("🗣️ Speech-to-Text dengan OpenAI Whisper")
-st.write("Upload audio (mp3, wav, m4a, ogg) → transkripsi otomatis. Support Bahasa Indonesia!")
+st.write(
+    "Upload audio (wav, mp3, m4a, ogg, flac) → transkripsi otomatis.\n\n"
+    "**Catatan:** Model akan di-load sekali (±1–3 menit)."
+)
 
+# -----------------------------
+# Load Whisper model (cached)
+# -----------------------------
 @st.cache_resource
 def load_model():
-    with st.spinner("Loading model Whisper..."):
-        device = 0 if torch.cuda.is_available() else -1
+    device = 0 if torch.cuda.is_available() else -1
+    with st.spinner("Loading Whisper model..."):
         pipe = pipeline(
             "automatic-speech-recognition",
             model="openai/whisper-small",
@@ -21,43 +36,50 @@ def load_model():
 
 pipe = load_model()
 
+# -----------------------------
+# File uploader
+# -----------------------------
 uploaded_file = st.file_uploader(
     "Upload Audio File",
     type=["wav", "mp3", "m4a", "ogg", "flac"],
-    help="File maksimal ~200MB"
+    help="Disarankan durasi < 5 menit untuk hasil cepat"
 )
 
-if uploaded_file is not None:
+if uploaded_file:
     st.audio(uploaded_file)
 
-    # Simpan ke temporary file (path string) → butuh ffmpeg untuk load non-wav
-    with NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_file:
-        tmp_file.write(uploaded_file.getvalue())
-        tmp_path = tmp_file.name
-
     if st.button("🎤 Mulai Transkripsi", type="primary"):
-        with st.spinner("Sedang mentranskripsi... (10-90 detik)"):
+        with st.spinner("Sedang mentranskripsi..."):
             try:
+                # Baca audio langsung dari bytes (tanpa ffmpeg)
+                audio_bytes = uploaded_file.read()
+                audio, sr = sf.read(io.BytesIO(audio_bytes))
+
+                # Jika stereo → mono
+                if len(audio.shape) > 1:
+                    audio = audio.mean(axis=1)
+
+                # Transkripsi
                 result = pipe(
-                    tmp_path,  # Pass path string
-                    generate_kwargs={"language": "indonesian", "task": "transcribe"},
-                    chunk_length_s=30,
-                    batch_size=8
+                    audio,
+                    generate_kwargs={
+                        "language": "id",
+                        "task": "transcribe"
+                    }
                 )
+
                 transcription = result["text"]
 
-                st.success("Selesai!")
-                st.subheader("Hasil Transkripsi:")
+                st.success("Transkripsi selesai!")
+                st.subheader("📝 Hasil Transkripsi")
                 st.write(transcription)
 
                 st.download_button(
-                    "📥 Download Teks (.txt)",
+                    "📥 Download hasil (.txt)",
                     transcription,
                     file_name="transkripsi.txt",
                     mime="text/plain"
                 )
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
 
-        # Hapus tmp file
-        os.unlink(tmp_path)
+            except Exception as e:
+                st.error(f"Terjadi error: {e}")
