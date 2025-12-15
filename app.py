@@ -1,70 +1,63 @@
 import streamlit as st
 from transformers import pipeline
 import torch
-import numpy as np
-import tempfile
 import os
+from tempfile import NamedTemporaryFile
 
 st.set_page_config(page_title="Speech-to-Text Whisper", page_icon="🗣️")
 st.title("🗣️ Speech-to-Text dengan OpenAI Whisper")
-st.write("Upload file audio (mp3, wav, m4a, ogg) → langsung transkripsi. Support Bahasa Indonesia!")
+st.write("Upload audio (mp3, wav, m4a, ogg) → transkripsi otomatis. Support Bahasa Indonesia!")
 
-# Load model (cache)
 @st.cache_resource
 def load_model():
-    with st.spinner("Loading model Whisper... "):
+    with st.spinner("Loading model Whisper..."):
         device = 0 if torch.cuda.is_available() else -1
         pipe = pipeline(
             "automatic-speech-recognition",
-            model="openai/whisper-small",  
+            model="openai/whisper-small",
             device=device
         )
     return pipe
 
 pipe = load_model()
 
-# Upload file
 uploaded_file = st.file_uploader(
     "Upload Audio File",
     type=["wav", "mp3", "m4a", "ogg", "flac"],
-    help="Maksimal ukuran file ~200MB"
+    help="File maksimal ~200MB"
 )
 
 if uploaded_file is not None:
-    # Tampilkan audio player
-    st.audio(uploaded_file.read(), format='audio/wav')  # Reset pointer setelah read
-    uploaded_file.seek(0)  # Reset pointer ke awal
+    st.audio(uploaded_file)
+
+    # Simpan ke temporary file (path string) → butuh ffmpeg untuk load non-wav
+    with NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_file:
+        tmp_file.write(uploaded_file.getvalue())
+        tmp_path = tmp_file.name
 
     if st.button("🎤 Mulai Transkripsi", type="primary"):
-        with st.spinner("Sedang mentranskripsi... (bisa 10-90 detik tergantung panjang audio)"):
+        with st.spinner("Sedang mentranskripsi... (10-90 detik)"):
             try:
-                # Baca file sebagai bytes langsung
-                audio_bytes = uploaded_file.read()
-
-                # Pipeline Whisper bisa terima bytes langsung!
                 result = pipe(
-                    audio_bytes,
+                    tmp_path,  # Pass path string
                     generate_kwargs={"language": "indonesian", "task": "transcribe"},
                     chunk_length_s=30,
                     batch_size=8
                 )
                 transcription = result["text"]
 
-                st.success("Transkripsi selesai!")
+                st.success("Selesai!")
                 st.subheader("Hasil Transkripsi:")
                 st.write(transcription)
 
-                # Download teks
                 st.download_button(
-                    label="📥 Download Teks (.txt)",
-                    data=transcription,
-                    file_name=f"transkripsi_{uploaded_file.name.split('.')[0]}.txt",
+                    "📥 Download Teks (.txt)",
+                    transcription,
+                    file_name="transkripsi.txt",
                     mime="text/plain"
                 )
-
             except Exception as e:
-                st.error(f"Terjadi error: {str(e)}")
-                st.write("Coba file audio lain atau ukuran lebih kecil.")
+                st.error(f"Error: {str(e)}")
 
-# Footer
-st.caption("Dibuat dengan 🤗 Hugging Face + OpenAI Whisper")
+        # Hapus tmp file
+        os.unlink(tmp_path)
