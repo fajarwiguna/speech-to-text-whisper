@@ -12,7 +12,7 @@ st.write("Upload file audio (mp3, wav, m4a) dan dapatkan transkripsi teks. Suppo
 # Load model 
 @st.cache_resource
 def load_model():
-    with st.spinner("Loading model Whisper-small... (pertama kali agak lama)"):
+    with st.spinner("Loading model Whisper-small..."):
         device = 0 if torch.cuda.is_available() else -1
         pipe = pipeline(
             "automatic-speech-recognition",
@@ -70,4 +70,4 @@ if uploaded_file is not None:
         os.unlink(tmp_path)
 
 # Footer
-st.caption("Dibuat dengan 🤗 Hugging Face Transformers + OpenAI Whisper | Untuk tugas akhir NLP")
+st.caption("Dibuat dengan 🤗 Hugging Face Transformers + OpenAI Whisper")
